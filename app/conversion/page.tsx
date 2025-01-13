@@ -149,10 +149,16 @@ export default function ConversionPage() {
       }
     });
 
-    // Find the main derived unit (prefer common units like joule, watt, etc.)
-    const preferredUnits = ['joule', 'watt', 'newton', 'pascal', 'volt', 'ohm'];
-    const mainUnit = Array.from(equivalentUnits).find(unit => preferredUnits.includes(unit)) || 
-                  Array.from(equivalentUnits)[0];
+    // Find the main derived unit based on unit structure and simplicity
+    const mainUnit = Array.from(equivalentUnits)
+      .sort((a, b) => {
+        // Prefer units with shorter names (typically more fundamental)
+        const lengthDiff = a.length - b.length;
+        if (lengthDiff !== 0) return lengthDiff;
+        
+        // If lengths are equal, sort alphabetically for consistency
+        return a.localeCompare(b);
+      })[0];
 
     if (mainUnit) {
       try {
