@@ -3,10 +3,16 @@
 import React from "react";
 import { Input } from "@/components/ui/input";
 import * as math from 'mathjs';
+import { Button } from "@/components/ui/button";
 
 interface Result {
   value: string;
   inMeters: string | null;
+  dimensionalAnalysis: {
+    numericValue: number | null;
+    units: string | null;
+    error: string | null;
+  };
 }
 
 interface UnitDefinition {
@@ -36,14 +42,26 @@ interface UnitConversion {
   derivedUnits?: DerivedUnit[];
 }
 
+interface SelectedUnit {
+  baseType: string;
+  unit: string;
+  power: number;
+}
+
 export default function ConversionPage() {
   const defaultValue = "x=2kg*m^2/s^2";
   const [value, setValue] = React.useState<string>(defaultValue);
   const [result, setResult] = React.useState<Result>({
     value: "",
-    inMeters: null
+    inMeters: null,
+    dimensionalAnalysis: {
+      numericValue: null,
+      units: null,
+      error: null
+    }
   });
   const [conversions, setConversions] = React.useState<UnitConversion[]>([]);
+  const [selectedUnits, setSelectedUnits] = React.useState<SelectedUnit[]>([]);
 
   React.useEffect(() => {
     evaluateExpression(defaultValue);
@@ -280,15 +298,147 @@ export default function ConversionPage() {
     }
   };
 
+  const getConversionFactor = (fromUnit: string, toUnit: string): number => {
+    try {
+      // Create a unit with value 1 in the fromUnit
+      const testUnit = math.unit('1 ' + fromUnit);
+      // Convert to target unit and extract the numeric value
+      const converted = testUnit.to(toUnit);
+      return converted.toNumber();
+    } catch (error) {
+      console.error('Error getting conversion factor:', { fromUnit, toUnit, error });
+      throw new Error(`Cannot get conversion factor from ${fromUnit} to ${toUnit}`);
+    }
+  };
+
+  const getDimensionalExpression = (units: SelectedUnit[] = selectedUnits) => {
+    if (units.length === 0) return "No units selected";
+    
+    // Sort units by baseType to ensure consistent ordering
+    const sortedUnits = [...units].sort((a, b) => a.baseType.localeCompare(b.baseType));
+    
+    // Group units by whether they are in numerator (positive power) or denominator (negative power)
+    const numerator = sortedUnits.filter(u => u.power > 0);
+    const denominator = sortedUnits.filter(u => u.power < 0);
+    
+    // Format numerator
+    const numeratorStr = numerator
+      .map(u => u.power === 1 ? u.unit : `${u.unit}^${u.power}`)
+      .join(' * ');
+    
+    // Format denominator
+    const denominatorStr = denominator
+      .map(u => `${u.unit}^${Math.abs(u.power)}`)
+      .join(' * ');
+    
+    // Combine numerator and denominator
+    let result;
+    if (numeratorStr && denominatorStr) {
+      result = `(${numeratorStr}) / (${denominatorStr})`;
+    } else if (numeratorStr) {
+      result = numeratorStr;
+    } else if (denominatorStr) {
+      result = `1 / (${denominatorStr})`;
+    } else {
+      result = "No units selected";
+    }
+    
+    return result;
+  };
+
+  const calculateDimensionalAnalysis = (evaluated: math.Unit, selectedUnits: SelectedUnit[]): Result['dimensionalAnalysis'] => {
+    if (selectedUnits.length === 0) {
+      return { numericValue: null, units: null, error: null };
+    }
+
+    try {
+      // Create a map of base types to their selected units for easy lookup
+      const selectedUnitMap = new Map(selectedUnits.map(u => [u.baseType, u]));
+      
+      // Get the original value and units
+      const originalValue = evaluated.toNumber();
+      const originalUnits = evaluated.units;
+
+      // Calculate the conversion factor for each unit component
+      let finalValue = originalValue;
+      const convertedUnits = new Set<string>();
+
+      // First, verify that we have all necessary units selected
+      for (const originalUnit of originalUnits) {
+        const baseType = originalUnit.unit.base.key;
+        if (!selectedUnitMap.has(baseType)) {
+          return {
+            numericValue: null,
+            units: null,
+            error: `Missing conversion for unit type: ${baseType}`
+          };
+        }
+      }
+
+      // Convert each original unit to its selected counterpart
+      for (const originalUnit of originalUnits) {
+        const baseType = originalUnit.unit.base.key;
+        const selectedUnit = selectedUnitMap.get(baseType);
+        
+        if (!selectedUnit) continue; // Should never happen due to previous check
+
+        try {
+          // Get conversion factor from original to target unit
+          const factor = getConversionFactor(originalUnit.unit.name, selectedUnit.unit);
+          // Apply the conversion factor with the correct power
+          finalValue *= Math.pow(factor, originalUnit.power);
+          convertedUnits.add(baseType);
+        } catch (error) {
+          console.error('Conversion error:', error);
+          return {
+            numericValue: null,
+            units: null,
+            error: `Cannot convert ${originalUnit.unit.name} to ${selectedUnit.unit}`
+          };
+        }
+      }
+
+      // Format the units string using the exact selected units passed to this function
+      const unitsStr = getDimensionalExpression(selectedUnits);
+
+      return {
+        numericValue: finalValue,
+        units: unitsStr,
+        error: null
+      };
+    } catch (error) {
+      console.error('Calculation error:', error);
+      return {
+        numericValue: null,
+        units: null,
+        error: 'Error performing dimensional analysis'
+      };
+    }
+  };
+
   const evaluateExpression = (input: string) => {
     try {
       if (!input.trim()) {
-        setResult({ value: "", inMeters: null });
+        setResult({
+          value: "",
+          inMeters: null,
+          dimensionalAnalysis: {
+            numericValue: null,
+            units: null,
+            error: null
+          }
+        });
         setConversions([]);
         return;
       }
+
       const evaluated = math.evaluate(input);
       let metersValue: string | null = null;
+      let dimensionalAnalysis: Result['dimensionalAnalysis'] = {
+        numericValue: null,
+        units: null,
+        error: null
+      };
 
       // Get all possible conversions
       const newConversions = getConversions(evaluated);
@@ -298,6 +448,9 @@ export default function ConversionPage() {
       try {
         const inMeters = math.unit(evaluated);
         metersValue = inMeters.toString();
+        
+        // Always calculate dimensional analysis with current selected units
+        dimensionalAnalysis = calculateDimensionalAnalysis(inMeters, selectedUnits);
       } catch {
         // Not a unit or cannot be converted to meters
         metersValue = null;
@@ -305,11 +458,47 @@ export default function ConversionPage() {
 
       setResult({
         value: evaluated.toString(),
-        inMeters: metersValue
+        inMeters: metersValue,
+        dimensionalAnalysis
       });
     } catch {
-      setResult({ value: "Invalid expression", inMeters: null });
+      setResult({
+        value: "Invalid expression",
+        inMeters: null,
+        dimensionalAnalysis: {
+          numericValue: null,
+          units: null,
+          error: "Invalid expression"
+        }
+      });
       setConversions([]);
+    }
+  };
+
+  const handleUnitSelection = (baseType: string, unit: string, power: number) => {
+    // Create new selected units array
+    const newSelectedUnits = [
+      ...selectedUnits.filter(u => u.baseType !== baseType),
+      { baseType, unit, power }
+    ];
+    
+    // Update selected units first
+    setSelectedUnits(newSelectedUnits);
+    
+    // Then update the dimensional analysis result using the current expression
+    try {
+      if (result.value) {
+        const evaluated = math.unit(result.value);
+        const newDimensionalAnalysis = calculateDimensionalAnalysis(evaluated, newSelectedUnits);
+        
+        // Update the entire result to ensure consistency
+        setResult(prev => ({
+          ...prev,
+          dimensionalAnalysis: newDimensionalAnalysis
+        }));
+      }
+    } catch (error) {
+      console.error('Error updating dimensional analysis:', error);
     }
   };
 
@@ -336,21 +525,59 @@ export default function ConversionPage() {
           <div className="text-lg font-semibold">
             Unit Conversions
           </div>
-          <div className="flex gap-4 overflow-x-auto">
+          <div className="flex flex-wrap gap-4">
             {conversions.map((conversion, i) => (
-              <div key={i} className="flex-none w-[300px]">
+              <div key={i} className="flex-1 min-w-[200px] max-w-[400px]">
                 <div className="font-medium mb-2">
                   {conversion.baseType} (power: {conversion.power})
                 </div>
-                <div className="space-y-2 max-h-[400px] overflow-y-auto border rounded-md p-2">
+                <div className="space-y-2 border rounded-md p-2">
                   {conversion.conversions.map((conv, j) => (
-                    <div key={j} className="text-sm">
-                      <span className="font-mono">{conv.unit}:</span> {conv.value}
+                    <div key={j}>
+                      <Button 
+                        variant={selectedUnits.some(u => u.unit === conv.unit) ? "default" : "ghost"}
+                        className="h-auto py-1 px-2 font-mono w-full text-left justify-start"
+                        onClick={() => handleUnitSelection(conversion.baseType, conv.unit, conversion.power)}
+                      >
+                        {conv.unit}: {conv.value}
+                      </Button>
                     </div>
                   ))}
                 </div>
               </div>
             ))}
+          </div>
+
+          {/* New Dimensional Unit Builder Section */}
+          <div className="mt-4 p-4 border rounded-md">
+            <div className="text-lg font-semibold mb-2">
+              Dimensional Unit Builder
+            </div>
+            <div className="flex flex-col gap-2">
+              <div className="font-medium">Selected Units:</div>
+              <div className="p-2 bg-muted rounded-md font-mono">
+                {getDimensionalExpression()}
+              </div>
+              {result.dimensionalAnalysis && (
+                <>
+                  <div className="font-medium mt-2">Dimensional Analysis Result:</div>
+                  <div className="p-2 bg-muted rounded-md">
+                    {result.dimensionalAnalysis.error ? (
+                      <div className="text-destructive">{result.dimensionalAnalysis.error}</div>
+                    ) : (
+                      <div className="font-mono flex gap-2 items-baseline">
+                        <span className="text-lg">
+                          {result.dimensionalAnalysis.numericValue?.toFixed(6)}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {result.dimensionalAnalysis.units}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
           
           {conversions[0]?.derivedUnits && conversions[0].derivedUnits.length > 0 && (
@@ -367,8 +594,13 @@ export default function ConversionPage() {
                     </div>
                     <div className="space-y-2 max-h-[400px] overflow-y-auto border rounded-md p-2">
                       {derived.conversions.map((conv, j) => (
-                        <div key={j} className="text-sm">
-                          <span className="font-mono">{conv.unit}:</span> {conv.value}
+                        <div key={j}>
+                          <Button 
+                            variant="ghost" 
+                            className="h-auto py-1 px-2 font-mono w-full text-left justify-start"
+                          >
+                            {conv.unit}: {conv.value}
+                          </Button>
                         </div>
                       ))}
                     </div>
