@@ -487,8 +487,32 @@ export default function ConversionPage() {
               console.error('Time conversion error:', error);
             }
           }
+        } else if (baseType === "SURFACE" || baseType === "AREA") {
+          // For area units (A = l^2)
+          const lengthUnit = selectedUnitMap.get("LENGTH");
+          if (lengthUnit) {
+            try {
+              const lengthConversionFactor = getConversionFactor(originalUnit.unit.name + "_length", lengthUnit.unit);
+              finalValue *= Math.pow(lengthConversionFactor, 2 * originalUnit.power); // l^2 for area
+              convertedUnits.add("LENGTH");
+            } catch (error) {
+              console.error('Length conversion error:', error);
+            }
+          }
+        } else if (baseType === "VOLUME") {
+          // For volume units (V = l^3)
+          const lengthUnit = selectedUnitMap.get("LENGTH");
+          if (lengthUnit) {
+            try {
+              const lengthConversionFactor = getConversionFactor(originalUnit.unit.name + "_length", lengthUnit.unit);
+              finalValue *= Math.pow(lengthConversionFactor, 3 * originalUnit.power); // l^3 for volume
+              convertedUnits.add("LENGTH");
+            } catch (error) {
+              console.error('Length conversion error:', error);
+            }
+          }
         } else {
-          // Handle non-pressure/energy/power units as before
+          // Handle non-pressure/energy/power/area/volume units as before
           const selectedUnit = selectedUnitMap.get(baseType);
           if (!selectedUnit) continue;
 
