@@ -49,7 +49,7 @@ interface SelectedUnit {
 }
 
 export default function ConversionPage() {
-  const defaultValue = "x=2kg*m^2/s^2";
+  const defaultValue = "x=2N/m^2";
   const [value, setValue] = React.useState<string>(defaultValue);
   const [result, setResult] = React.useState<Result>({
     value: "",
@@ -300,6 +300,24 @@ export default function ConversionPage() {
 
   const getConversionFactor = (fromUnit: string, toUnit: string): number => {
     try {
+      // Handle special case for pressure unit components
+      if (fromUnit.endsWith("_force")) {
+        // Convert from pressure to force (multiply by area)
+        const pressureToForce = math.unit('1 Pa').to('N/m^2').toNumber() * 1; // 1 m^2 area
+        // Then convert force to target unit
+        const forceUnit = math.unit('1 N').to(toUnit);
+        return pressureToForce * forceUnit.toNumber();
+      } else if (fromUnit.endsWith("_length")) {
+        // For length component, we use meter as the base unit
+        return math.unit('1 m').to(toUnit).toNumber();
+      } else if (fromUnit.endsWith("_mass")) {
+        // For mass component of energy, we use kilogram as base unit
+        return math.unit('1 kg').to(toUnit).toNumber();
+      } else if (fromUnit.endsWith("_time")) {
+        // For time component of energy, we use second as base unit
+        return math.unit('1 s').to(toUnit).toNumber();
+      }
+
       // Create a unit with value 1 in the fromUnit
       const testUnit = math.unit('1 ' + fromUnit);
       // Convert to target unit and extract the numeric value
@@ -364,37 +382,128 @@ export default function ConversionPage() {
       const convertedUnits = new Set<string>();
 
       // First, verify that we have all necessary units selected
+      console.log('Original units:', originalUnits);
       for (const originalUnit of originalUnits) {
         const baseType = originalUnit.unit.base.key;
-        if (!selectedUnitMap.has(baseType)) {
-          return {
-            numericValue: null,
-            units: null,
-            error: `Missing conversion for unit type: ${baseType}`
-          };
-        }
-      }
+        if (baseType === "PRESSURE") {
+          // For pressure units, we need to split into force and area (length squared)
+          // Add force component
+          const forceUnit = selectedUnitMap.get("FORCE");
+          if (forceUnit) {
+            try {
+              // Convert the pressure unit's force component
+              const forceConversionFactor = getConversionFactor(originalUnit.unit.name + "_force", forceUnit.unit);
+              finalValue *= Math.pow(forceConversionFactor, originalUnit.power);
+              convertedUnits.add("FORCE");
+            } catch (error) {
+              console.error('Force conversion error:', error);
+            }
+          }
 
-      // Convert each original unit to its selected counterpart
-      for (const originalUnit of originalUnits) {
-        const baseType = originalUnit.unit.base.key;
-        const selectedUnit = selectedUnitMap.get(baseType);
-        
-        if (!selectedUnit) continue; // Should never happen due to previous check
+          // Add length component (squared for area)
+          const lengthUnit = selectedUnitMap.get("LENGTH");
+          if (lengthUnit) {
+            try {
+              // Convert the pressure unit's length component (squared)
+              const lengthConversionFactor = getConversionFactor(originalUnit.unit.name + "_length", lengthUnit.unit);
+              // Note: pressure is force per area, so length is squared and negative
+              finalValue *= Math.pow(lengthConversionFactor, -2 * originalUnit.power);
+              convertedUnits.add("LENGTH");
+            } catch (error) {
+              console.error('Length conversion error:', error);
+            }
+          }
+        } else if (baseType === "ENERGY") {
+          // For energy units (E = m * l^2 * t^-2)
+          // Add mass component
+          const massUnit = selectedUnitMap.get("MASS");
+          if (massUnit) {
+            try {
+              const massConversionFactor = getConversionFactor(originalUnit.unit.name + "_mass", massUnit.unit);
+              finalValue *= Math.pow(massConversionFactor, originalUnit.power);
+              convertedUnits.add("MASS");
+            } catch (error) {
+              console.error('Mass conversion error:', error);
+            }
+          }
 
-        try {
-          // Get conversion factor from original to target unit
-          const factor = getConversionFactor(originalUnit.unit.name, selectedUnit.unit);
-          // Apply the conversion factor with the correct power
-          finalValue *= Math.pow(factor, originalUnit.power);
-          convertedUnits.add(baseType);
-        } catch (error) {
-          console.error('Conversion error:', error);
-          return {
-            numericValue: null,
-            units: null,
-            error: `Cannot convert ${originalUnit.unit.name} to ${selectedUnit.unit}`
-          };
+          // Add length component (squared)
+          const lengthUnit = selectedUnitMap.get("LENGTH");
+          if (lengthUnit) {
+            try {
+              const lengthConversionFactor = getConversionFactor(originalUnit.unit.name + "_length", lengthUnit.unit);
+              finalValue *= Math.pow(lengthConversionFactor, 2 * originalUnit.power);
+              convertedUnits.add("LENGTH");
+            } catch (error) {
+              console.error('Length conversion error:', error);
+            }
+          }
+
+          // Add time component (squared, negative)
+          const timeUnit = selectedUnitMap.get("TIME");
+          if (timeUnit) {
+            try {
+              const timeConversionFactor = getConversionFactor(originalUnit.unit.name + "_time", timeUnit.unit);
+              finalValue *= Math.pow(timeConversionFactor, -2 * originalUnit.power);
+              convertedUnits.add("TIME");
+            } catch (error) {
+              console.error('Time conversion error:', error);
+            }
+          }
+        } else if (baseType === "POWER") {
+          // For power units (P = m * l^2 * t^-3)
+          // Add mass component
+          const massUnit = selectedUnitMap.get("MASS");
+          if (massUnit) {
+            try {
+              const massConversionFactor = getConversionFactor(originalUnit.unit.name + "_mass", massUnit.unit);
+              finalValue *= Math.pow(massConversionFactor, originalUnit.power);
+              convertedUnits.add("MASS");
+            } catch (error) {
+              console.error('Mass conversion error:', error);
+            }
+          }
+
+          // Add length component (squared)
+          const lengthUnit = selectedUnitMap.get("LENGTH");
+          if (lengthUnit) {
+            try {
+              const lengthConversionFactor = getConversionFactor(originalUnit.unit.name + "_length", lengthUnit.unit);
+              finalValue *= Math.pow(lengthConversionFactor, 2 * originalUnit.power);
+              convertedUnits.add("LENGTH");
+            } catch (error) {
+              console.error('Length conversion error:', error);
+            }
+          }
+
+          // Add time component (cubed, negative)
+          const timeUnit = selectedUnitMap.get("TIME");
+          if (timeUnit) {
+            try {
+              const timeConversionFactor = getConversionFactor(originalUnit.unit.name + "_time", timeUnit.unit);
+              finalValue *= Math.pow(timeConversionFactor, -3 * originalUnit.power); // Note: t^-3 for power
+              convertedUnits.add("TIME");
+            } catch (error) {
+              console.error('Time conversion error:', error);
+            }
+          }
+        } else {
+          // Handle non-pressure/energy/power units as before
+          const selectedUnit = selectedUnitMap.get(baseType);
+          if (!selectedUnit) continue;
+
+          try {
+            const factor = getConversionFactor(originalUnit.unit.name, selectedUnit.unit);
+            finalValue *= Math.pow(factor, originalUnit.power);
+            convertedUnits.add(baseType);
+          } catch (error) {
+            console.error('Conversion error:', error);
+            return {
+              numericValue: null,
+              units: null,
+              error: `Cannot convert ${originalUnit.unit.name} to ${selectedUnit.unit}`
+            };
+          }
         }
       }
 
@@ -429,6 +538,7 @@ export default function ConversionPage() {
           }
         });
         setConversions([]);
+        setSelectedUnits([]); // Clear selected units when input is empty
         return;
       }
 
@@ -443,6 +553,12 @@ export default function ConversionPage() {
       // Get all possible conversions
       const newConversions = getConversions(evaluated);
       setConversions(newConversions);
+
+      // Get the base types from the new conversions
+      const currentBaseTypes = new Set(newConversions.map(conv => conv.baseType));
+      
+      // Filter out selected units that are no longer applicable
+      setSelectedUnits(prev => prev.filter(selected => currentBaseTypes.has(selected.baseType)));
 
       // Try to convert to meters if it's a unit
       try {
@@ -472,6 +588,7 @@ export default function ConversionPage() {
         }
       });
       setConversions([]);
+      setSelectedUnits([]); // Clear selected units on invalid expression
     }
   };
 
