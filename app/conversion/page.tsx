@@ -4,6 +4,7 @@ import React from "react";
 import { Input } from "@/components/ui/input";
 import * as math from 'mathjs';
 import { Button } from "@/components/ui/button";
+import { ChevronRightIcon } from "@radix-ui/react-icons";
 
 interface Result {
   value: string;
@@ -47,6 +48,191 @@ interface SelectedUnit {
   unit: string;
   power: number;
 }
+
+interface LengthUnit {
+  unit: string;
+  value: string;
+  label: string;
+}
+
+interface UnitConversionButtonProps {
+  conversion: {
+    unit: string;
+    value: string;
+  };
+  baseType: string;
+  power: number;
+  isSelected: boolean;
+  selectedUnits: SelectedUnit[];
+  onSelect: (baseType: string, unit: string, power: number) => void;
+}
+
+const commonLengthUnits: LengthUnit[] = [
+  { unit: 'nm', value: '1e-9', label: 'nanometers' },
+  { unit: 'um', value: '1e-6', label: 'micrometers' },
+  { unit: 'mm', value: '0.001', label: 'millimeters' },
+  { unit: 'cm', value: '0.01', label: 'centimeters' },
+  { unit: 'dm', value: '0.1', label: 'decimeters' },
+  { unit: 'm', value: '1', label: 'meters' },
+  { unit: 'km', value: '1000', label: 'kilometers' }
+];
+
+const UnitConversionButton: React.FC<UnitConversionButtonProps> = ({
+  conversion,
+  baseType,
+  power,
+  isSelected,
+  selectedUnits,
+  onSelect
+}) => {
+  const [showSecondary, setShowSecondary] = React.useState(false);
+  const menuRef = React.useRef<HTMLDivElement>(null);
+  const buttonRef = React.useRef<HTMLDivElement>(null);
+  const timeoutRef = React.useRef<NodeJS.Timeout | undefined>(undefined);
+
+  const isLengthUnit = baseType === 'LENGTH' && (conversion.unit === 'meters' || conversion.unit === 'm');
+
+  // Handle clicks outside the menu to close it
+  React.useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (showSecondary && 
+          menuRef.current && 
+          buttonRef.current && 
+          !menuRef.current.contains(event.target as Node) && 
+          !buttonRef.current.contains(event.target as Node)) {
+        setShowSecondary(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showSecondary]);
+
+  // Cleanup timeout on unmount
+  React.useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
+  const handleMouseEnter = () => {
+    if (isLengthUnit) {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      setShowSecondary(true);
+    }
+  };
+
+  const handleMouseLeave = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (isLengthUnit) {
+      // Check if moving to the secondary menu
+      const relatedTarget = e.relatedTarget as HTMLElement;
+      if (menuRef.current?.contains(relatedTarget) || buttonRef.current?.contains(relatedTarget)) {
+        return;
+      }
+
+      // Add a small delay before closing
+      timeoutRef.current = setTimeout(() => {
+        setShowSecondary(false);
+      }, 150);
+    }
+  };
+
+  const handleButtonClick = () => {
+    if (isLengthUnit) {
+      setShowSecondary(!showSecondary);
+    } else {
+      onSelect(baseType, conversion.unit, power);
+    }
+  };
+
+  const handleSecondarySelect = (unit: string) => {
+    onSelect(baseType, unit, power);
+    setShowSecondary(false);
+  };
+
+  // Find if any metric unit is selected for this base type and power
+  const hasMetricSelection = selectedUnits.some(u => 
+    u.baseType === baseType && 
+    u.power === power && 
+    commonLengthUnits.some(lu => lu.unit === u.unit)
+  );
+
+  // Get the selected metric unit if any
+  const selectedMetricUnit = hasMetricSelection 
+    ? selectedUnits.find(u => 
+        u.baseType === baseType && 
+        u.power === power && 
+        commonLengthUnits.some(lu => lu.unit === u.unit)
+      )
+    : null;
+
+  return (
+    <div 
+      className="relative" 
+      ref={buttonRef}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
+      <Button 
+        variant={isSelected || (isLengthUnit && hasMetricSelection) ? "default" : "ghost"}
+        className={`h-auto py-1 px-2 font-mono w-full text-left justify-between transition-colors group
+          ${isLengthUnit ? 'cursor-pointer' : ''}`}
+        onClick={handleButtonClick}
+      >
+        <span>
+          {isLengthUnit && selectedMetricUnit 
+            ? `${selectedMetricUnit.unit}: ${commonLengthUnits.find(u => u.unit === selectedMetricUnit.unit)?.label}`
+            : `${conversion.unit}: ${conversion.value}`}
+        </span>
+        {isLengthUnit && (
+          <ChevronRightIcon className="h-4 w-4 shrink-0 transition-colors opacity-50 group-hover:opacity-100" />
+        )}
+      </Button>
+      
+      {isLengthUnit && showSecondary && (
+        <div 
+          ref={menuRef}
+          className="absolute left-full top-0 ml-2 bg-background border rounded-md shadow-lg z-50 min-w-[200px]"
+          onMouseEnter={() => {
+            if (timeoutRef.current) {
+              clearTimeout(timeoutRef.current);
+            }
+          }}
+          onMouseLeave={() => setShowSecondary(false)}
+        >
+          <div className="py-1">
+            {commonLengthUnits.map((lengthUnit, index) => {
+              const isUnitSelected = selectedUnits.some(u => 
+                u.baseType === baseType && 
+                u.power === power && 
+                u.unit === lengthUnit.unit
+              );
+              
+              return (
+                <Button
+                  key={index}
+                  variant={isUnitSelected ? "default" : "ghost"}
+                  className={`h-auto py-2 px-3 font-mono w-full text-left justify-start
+                    ${isUnitSelected ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'}`}
+                  onClick={() => handleSecondarySelect(lengthUnit.unit)}
+                >
+                  <span className="inline-block w-12">{lengthUnit.unit}</span>
+                  <span className={isUnitSelected ? 'text-primary-foreground' : 'text-muted-foreground'}>
+                    {lengthUnit.label} ({lengthUnit.value})
+                  </span>
+                </Button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 export default function ConversionPage() {
   const defaultValue = "x=2N/m^2";
@@ -549,6 +735,137 @@ export default function ConversionPage() {
     }
   };
 
+  const autoSelectUnits = (evaluated: math.Unit, conversions: UnitConversion[]) => {
+    // Clear previous selections first
+    setSelectedUnits([]);
+
+    // Wait for conversion buttons to be rendered
+    setTimeout(() => {
+      try {
+        const units = evaluated.units;
+        const newSelectedUnits: SelectedUnit[] = [];
+
+        units.forEach(unitPart => {
+          const baseType = unitPart.unit.base.key;
+          const unitName = unitPart.unit.name;
+          const power = unitPart.power;
+
+          // Find matching conversion group
+          const conversionGroup = conversions.find(conv => conv.baseType === baseType && conv.power === power);
+          if (!conversionGroup) return;
+
+          // Try to find exact match first
+          const matchingConversion = conversionGroup.conversions.find(conv => {
+            try {
+              // Create test units with value 1
+              const testUnit = math.unit('1 ' + unitName);
+              const targetUnit = math.unit('1 ' + conv.unit);
+
+              // Try converting between them (in both directions)
+              try {
+                const converted = testUnit.to(targetUnit.units[0].unit.name);
+                return Math.abs(converted.toNumber() - 1) < 1e-10;
+              } catch {
+                try {
+                  const converted = targetUnit.to(testUnit.units[0].unit.name);
+                  return Math.abs(converted.toNumber() - 1) < 1e-10;
+                } catch {
+                  return false;
+                }
+              }
+            } catch {
+              // If unit creation fails, try simple string matching
+              return conv.unit.toLowerCase() === unitName.toLowerCase() ||
+                     conv.unit.replace(/[^a-zA-Z0-9]/g, '') === unitName.replace(/[^a-zA-Z0-9]/g, '');
+            }
+          });
+
+          if (matchingConversion) {
+            newSelectedUnits.push({
+              baseType,
+              unit: matchingConversion.unit,
+              power
+            });
+          }
+        });
+
+        // Handle compound units (like pressure = force/area)
+        if (units.some(u => u.unit.base.key === "PRESSURE")) {
+          const forceGroup = conversions.find(conv => conv.baseType === "FORCE");
+          const lengthGroup = conversions.find(conv => conv.baseType === "LENGTH");
+
+          if (forceGroup && lengthGroup) {
+            // Add force unit
+            const forceConv = forceGroup.conversions[0];
+            if (forceConv) {
+              newSelectedUnits.push({
+                baseType: "FORCE",
+                unit: forceConv.unit,
+                power: 1
+              });
+            }
+
+            // Add length unit (squared for area)
+            const lengthConv = lengthGroup.conversions[0];
+            if (lengthConv) {
+              newSelectedUnits.push({
+                baseType: "LENGTH",
+                unit: lengthConv.unit,
+                power: -2
+              });
+            }
+          }
+        }
+
+        // Handle energy units (E = m * l^2 * t^-2)
+        if (units.some(u => u.unit.base.key === "ENERGY")) {
+          const massGroup = conversions.find(conv => conv.baseType === "MASS");
+          const lengthGroup = conversions.find(conv => conv.baseType === "LENGTH");
+          const timeGroup = conversions.find(conv => conv.baseType === "TIME");
+
+          if (massGroup && lengthGroup && timeGroup) {
+            // Add mass unit
+            const massConv = massGroup.conversions[0];
+            if (massConv) {
+              newSelectedUnits.push({
+                baseType: "MASS",
+                unit: massConv.unit,
+                power: 1
+              });
+            }
+
+            // Add length unit (squared)
+            const lengthConv = lengthGroup.conversions[0];
+            if (lengthConv) {
+              newSelectedUnits.push({
+                baseType: "LENGTH",
+                unit: lengthConv.unit,
+                power: 2
+              });
+            }
+
+            // Add time unit (squared, negative)
+            const timeConv = timeGroup.conversions[0];
+            if (timeConv) {
+              newSelectedUnits.push({
+                baseType: "TIME",
+                unit: timeConv.unit,
+                power: -2
+              });
+            }
+          }
+        }
+
+        // Update selected units if we found matches
+        if (newSelectedUnits.length > 0) {
+          setSelectedUnits(newSelectedUnits);
+        }
+      } catch (error) {
+        console.error('Error in autoSelectUnits:', error);
+      }
+    }, 0);
+  };
+
   const evaluateExpression = (input: string) => {
     try {
       if (!input.trim()) {
@@ -578,18 +895,15 @@ export default function ConversionPage() {
       const newConversions = getConversions(evaluated);
       setConversions(newConversions);
 
-      // Get the base types from the new conversions
-      const currentBaseTypes = new Set(newConversions.map(conv => conv.baseType));
-      
-      // Filter out selected units that are no longer applicable
-      setSelectedUnits(prev => prev.filter(selected => currentBaseTypes.has(selected.baseType)));
-
       // Try to convert to meters if it's a unit
       try {
         const inMeters = math.unit(evaluated);
         metersValue = inMeters.toString();
         
-        // Always calculate dimensional analysis with current selected units
+        // Auto-select units based on input
+        autoSelectUnits(inMeters, newConversions);
+        
+        // Calculate dimensional analysis with current selected units
         dimensionalAnalysis = calculateDimensionalAnalysis(inMeters, selectedUnits);
       } catch {
         // Not a unit or cannot be converted to meters
@@ -674,15 +988,15 @@ export default function ConversionPage() {
                 </div>
                 <div className="space-y-2 border rounded-md p-2">
                   {conversion.conversions.map((conv, j) => (
-                    <div key={j}>
-                      <Button 
-                        variant={selectedUnits.some(u => u.unit === conv.unit) ? "default" : "ghost"}
-                        className="h-auto py-1 px-2 font-mono w-full text-left justify-start"
-                        onClick={() => handleUnitSelection(conversion.baseType, conv.unit, conversion.power)}
-                      >
-                        {conv.unit}: {conv.value}
-                      </Button>
-                    </div>
+                    <UnitConversionButton
+                      key={j}
+                      conversion={conv}
+                      baseType={conversion.baseType}
+                      power={conversion.power}
+                      isSelected={selectedUnits.some(u => u.unit === conv.unit)}
+                      selectedUnits={selectedUnits}
+                      onSelect={handleUnitSelection}
+                    />
                   ))}
                 </div>
               </div>
