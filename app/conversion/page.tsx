@@ -90,6 +90,16 @@ const commonTimeUnits: LengthUnit[] = [
   { unit: 's', value: '1', label: 'seconds' }
 ];
 
+const commonMassUnits: LengthUnit[] = [
+  { unit: 'ng', value: '1e-9', label: 'nanograms' },
+  { unit: 'ug', value: '1e-6', label: 'micrograms' },
+  { unit: 'mg', value: '0.001', label: 'milligrams' },
+  { unit: 'cg', value: '0.01', label: 'centigrams' },
+  { unit: 'dg', value: '0.1', label: 'decigrams' },
+  { unit: 'g', value: '1', label: 'grams' },
+  { unit: 'kg', value: '1000', label: 'kilograms' }
+];
+
 const UnitConversionButton: React.FC<UnitConversionButtonProps> = ({
   conversion,
   baseType,
@@ -105,6 +115,7 @@ const UnitConversionButton: React.FC<UnitConversionButtonProps> = ({
 
   const isLengthUnit = baseType === 'LENGTH' && (conversion.unit === 'meters' || conversion.unit === 'm');
   const isTimeUnit = baseType === 'TIME' && (conversion.unit === 'seconds' || conversion.unit === 's');
+  const isMassUnit = baseType === 'MASS' && (conversion.unit === 'grams' || conversion.unit === 'g');
 
   // Handle clicks outside the menu to close it
   React.useEffect(() => {
@@ -132,7 +143,7 @@ const UnitConversionButton: React.FC<UnitConversionButtonProps> = ({
   }, []);
 
   const handleMouseEnter = () => {
-    if (isLengthUnit || isTimeUnit) {
+    if (isLengthUnit || isTimeUnit || isMassUnit) {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
@@ -141,7 +152,7 @@ const UnitConversionButton: React.FC<UnitConversionButtonProps> = ({
   };
 
   const handleMouseLeave = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isLengthUnit || isTimeUnit) {
+    if (isLengthUnit || isTimeUnit || isMassUnit) {
       // Check if moving to the secondary menu
       const relatedTarget = e.relatedTarget as Element | null;
       if (menuRef.current?.contains(relatedTarget) || buttonRef.current?.contains(relatedTarget)) {
@@ -156,7 +167,7 @@ const UnitConversionButton: React.FC<UnitConversionButtonProps> = ({
   };
 
   const handleButtonClick = () => {
-    if (isLengthUnit || isTimeUnit) {
+    if (isLengthUnit || isTimeUnit || isMassUnit) {
       setShowSecondary(!showSecondary);
     } else {
       onSelect(baseType, conversion.unit, power);
@@ -172,7 +183,7 @@ const UnitConversionButton: React.FC<UnitConversionButtonProps> = ({
   const hasMetricSelection = selectedUnits.some(u => 
     u.baseType === baseType && 
     u.power === power && 
-    (isLengthUnit ? commonLengthUnits : isTimeUnit ? commonTimeUnits : []).some(lu => lu.unit === u.unit)
+    (isLengthUnit ? commonLengthUnits : isTimeUnit ? commonTimeUnits : isMassUnit ? commonMassUnits : []).some(lu => lu.unit === u.unit)
   );
 
   // Get the selected metric unit if any
@@ -180,7 +191,7 @@ const UnitConversionButton: React.FC<UnitConversionButtonProps> = ({
     ? selectedUnits.find(u => 
         u.baseType === baseType && 
         u.power === power && 
-        (isLengthUnit ? commonLengthUnits : isTimeUnit ? commonTimeUnits : []).some(lu => lu.unit === u.unit)
+        (isLengthUnit ? commonLengthUnits : isTimeUnit ? commonTimeUnits : isMassUnit ? commonMassUnits : []).some(lu => lu.unit === u.unit)
       )
     : null;
 
@@ -192,22 +203,22 @@ const UnitConversionButton: React.FC<UnitConversionButtonProps> = ({
       onMouseLeave={handleMouseLeave}
     >
       <Button 
-        variant={isSelected || ((isLengthUnit || isTimeUnit) && hasMetricSelection) ? "default" : "ghost"}
+        variant={isSelected || ((isLengthUnit || isTimeUnit || isMassUnit) && hasMetricSelection) ? "default" : "ghost"}
         className={`h-auto py-1 px-2 font-mono w-full text-left justify-between transition-colors group
-          ${(isLengthUnit || isTimeUnit) ? 'cursor-pointer' : ''}`}
+          ${(isLengthUnit || isTimeUnit || isMassUnit) ? 'cursor-pointer' : ''}`}
         onClick={handleButtonClick}
       >
         <span>
-          {(isLengthUnit || isTimeUnit) && selectedMetricUnit 
-            ? `${selectedMetricUnit.unit}: ${(isLengthUnit ? commonLengthUnits : commonTimeUnits).find(u => u.unit === selectedMetricUnit.unit)?.label}`
+          {(isLengthUnit || isTimeUnit || isMassUnit) && selectedMetricUnit 
+            ? `${selectedMetricUnit.unit}: ${(isLengthUnit ? commonLengthUnits : isTimeUnit ? commonTimeUnits : commonMassUnits).find(u => u.unit === selectedMetricUnit.unit)?.label}`
             : `${conversion.unit}: ${conversion.value}`}
         </span>
-        {(isLengthUnit || isTimeUnit) && (
+        {(isLengthUnit || isTimeUnit || isMassUnit) && (
           <ChevronRightIcon className="h-4 w-4 shrink-0 transition-colors opacity-50 group-hover:opacity-100" />
         )}
       </Button>
       
-      {(isLengthUnit || isTimeUnit) && showSecondary && (
+      {(isLengthUnit || isTimeUnit || isMassUnit) && showSecondary && (
         <div 
           ref={menuRef}
           className="absolute left-full top-0 ml-2 bg-background border rounded-md shadow-lg z-50 min-w-[200px]"
@@ -219,7 +230,7 @@ const UnitConversionButton: React.FC<UnitConversionButtonProps> = ({
           onMouseLeave={() => setShowSecondary(false)}
         >
           <div className="py-1">
-            {(isLengthUnit ? commonLengthUnits : commonTimeUnits).map((unit, index) => {
+            {(isLengthUnit ? commonLengthUnits : isTimeUnit ? commonTimeUnits : commonMassUnits).map((unit, index) => {
               const isUnitSelected = selectedUnits.some(u => 
                 u.baseType === baseType && 
                 u.power === power && 
@@ -794,6 +805,17 @@ export default function ConversionPage() {
           } else if (baseType === "TIME") {
             // Try to find the exact unit in commonTimeUnits
             const exactMetricMatch = commonTimeUnits.find(tu => tu.unit === fullUnitName);
+            if (exactMetricMatch) {
+              newSelectedUnits.push({
+                baseType,
+                unit: fullUnitName,
+                power
+              });
+              return;
+            }
+          } else if (baseType === "MASS") {
+            // Try to find the exact unit in commonMassUnits
+            const exactMetricMatch = commonMassUnits.find(mu => mu.unit === fullUnitName);
             if (exactMetricMatch) {
               newSelectedUnits.push({
                 baseType,
