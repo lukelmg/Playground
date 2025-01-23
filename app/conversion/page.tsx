@@ -6,6 +6,12 @@ import * as math from 'mathjs';
 import { Button } from "@/components/ui/button";
 import { ChevronRightIcon } from "@radix-ui/react-icons";
 
+interface UnitPrefix {
+  name: string;
+  value: number;
+  scientific: boolean;
+}
+
 interface Result {
   value: string;
   inMeters: string | null;
@@ -77,6 +83,13 @@ const commonLengthUnits: LengthUnit[] = [
   { unit: 'km', value: '1000', label: 'kilometers' }
 ];
 
+const commonTimeUnits: LengthUnit[] = [
+  { unit: 'ns', value: '1e-9', label: 'nanoseconds' },
+  { unit: 'us', value: '1e-6', label: 'microseconds' },
+  { unit: 'ms', value: '0.001', label: 'milliseconds' },
+  { unit: 's', value: '1', label: 'seconds' }
+];
+
 const UnitConversionButton: React.FC<UnitConversionButtonProps> = ({
   conversion,
   baseType,
@@ -91,6 +104,7 @@ const UnitConversionButton: React.FC<UnitConversionButtonProps> = ({
   const timeoutRef = React.useRef<NodeJS.Timeout | undefined>(undefined);
 
   const isLengthUnit = baseType === 'LENGTH' && (conversion.unit === 'meters' || conversion.unit === 'm');
+  const isTimeUnit = baseType === 'TIME' && (conversion.unit === 'seconds' || conversion.unit === 's');
 
   // Handle clicks outside the menu to close it
   React.useEffect(() => {
@@ -118,7 +132,7 @@ const UnitConversionButton: React.FC<UnitConversionButtonProps> = ({
   }, []);
 
   const handleMouseEnter = () => {
-    if (isLengthUnit) {
+    if (isLengthUnit || isTimeUnit) {
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
@@ -127,9 +141,9 @@ const UnitConversionButton: React.FC<UnitConversionButtonProps> = ({
   };
 
   const handleMouseLeave = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (isLengthUnit) {
+    if (isLengthUnit || isTimeUnit) {
       // Check if moving to the secondary menu
-      const relatedTarget = e.relatedTarget as HTMLElement;
+      const relatedTarget = e.relatedTarget as Element | null;
       if (menuRef.current?.contains(relatedTarget) || buttonRef.current?.contains(relatedTarget)) {
         return;
       }
@@ -142,7 +156,7 @@ const UnitConversionButton: React.FC<UnitConversionButtonProps> = ({
   };
 
   const handleButtonClick = () => {
-    if (isLengthUnit) {
+    if (isLengthUnit || isTimeUnit) {
       setShowSecondary(!showSecondary);
     } else {
       onSelect(baseType, conversion.unit, power);
@@ -158,7 +172,7 @@ const UnitConversionButton: React.FC<UnitConversionButtonProps> = ({
   const hasMetricSelection = selectedUnits.some(u => 
     u.baseType === baseType && 
     u.power === power && 
-    commonLengthUnits.some(lu => lu.unit === u.unit)
+    (isLengthUnit ? commonLengthUnits : isTimeUnit ? commonTimeUnits : []).some(lu => lu.unit === u.unit)
   );
 
   // Get the selected metric unit if any
@@ -166,7 +180,7 @@ const UnitConversionButton: React.FC<UnitConversionButtonProps> = ({
     ? selectedUnits.find(u => 
         u.baseType === baseType && 
         u.power === power && 
-        commonLengthUnits.some(lu => lu.unit === u.unit)
+        (isLengthUnit ? commonLengthUnits : isTimeUnit ? commonTimeUnits : []).some(lu => lu.unit === u.unit)
       )
     : null;
 
@@ -178,22 +192,22 @@ const UnitConversionButton: React.FC<UnitConversionButtonProps> = ({
       onMouseLeave={handleMouseLeave}
     >
       <Button 
-        variant={isSelected || (isLengthUnit && hasMetricSelection) ? "default" : "ghost"}
+        variant={isSelected || ((isLengthUnit || isTimeUnit) && hasMetricSelection) ? "default" : "ghost"}
         className={`h-auto py-1 px-2 font-mono w-full text-left justify-between transition-colors group
-          ${isLengthUnit ? 'cursor-pointer' : ''}`}
+          ${(isLengthUnit || isTimeUnit) ? 'cursor-pointer' : ''}`}
         onClick={handleButtonClick}
       >
         <span>
-          {isLengthUnit && selectedMetricUnit 
-            ? `${selectedMetricUnit.unit}: ${commonLengthUnits.find(u => u.unit === selectedMetricUnit.unit)?.label}`
+          {(isLengthUnit || isTimeUnit) && selectedMetricUnit 
+            ? `${selectedMetricUnit.unit}: ${(isLengthUnit ? commonLengthUnits : commonTimeUnits).find(u => u.unit === selectedMetricUnit.unit)?.label}`
             : `${conversion.unit}: ${conversion.value}`}
         </span>
-        {isLengthUnit && (
+        {(isLengthUnit || isTimeUnit) && (
           <ChevronRightIcon className="h-4 w-4 shrink-0 transition-colors opacity-50 group-hover:opacity-100" />
         )}
       </Button>
       
-      {isLengthUnit && showSecondary && (
+      {(isLengthUnit || isTimeUnit) && showSecondary && (
         <div 
           ref={menuRef}
           className="absolute left-full top-0 ml-2 bg-background border rounded-md shadow-lg z-50 min-w-[200px]"
@@ -205,11 +219,11 @@ const UnitConversionButton: React.FC<UnitConversionButtonProps> = ({
           onMouseLeave={() => setShowSecondary(false)}
         >
           <div className="py-1">
-            {commonLengthUnits.map((lengthUnit, index) => {
+            {(isLengthUnit ? commonLengthUnits : commonTimeUnits).map((unit, index) => {
               const isUnitSelected = selectedUnits.some(u => 
                 u.baseType === baseType && 
                 u.power === power && 
-                u.unit === lengthUnit.unit
+                u.unit === unit.unit
               );
               
               return (
@@ -218,11 +232,11 @@ const UnitConversionButton: React.FC<UnitConversionButtonProps> = ({
                   variant={isUnitSelected ? "default" : "ghost"}
                   className={`h-auto py-2 px-3 font-mono w-full text-left justify-start
                     ${isUnitSelected ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'}`}
-                  onClick={() => handleSecondarySelect(lengthUnit.unit)}
+                  onClick={() => handleSecondarySelect(unit.unit)}
                 >
-                  <span className="inline-block w-12">{lengthUnit.unit}</span>
+                  <span className="inline-block w-12">{unit.unit}</span>
                   <span className={isUnitSelected ? 'text-primary-foreground' : 'text-muted-foreground'}>
-                    {lengthUnit.label} ({lengthUnit.value})
+                    {unit.label} ({unit.value})
                   </span>
                 </Button>
               );
@@ -433,15 +447,22 @@ export default function ConversionPage() {
         const seenBaseTypes = new Set<string>();
         
         units.forEach(unitPart => {
-          const baseKey = unitPart.unit.base.key;
-          if (!seenBaseTypes.has(baseKey)) {
-            seenBaseTypes.add(baseKey);
+          const baseType = unitPart.unit.base.key;
+          const unitName = unitPart.unit.name;
+          // Handle the prefix - if it exists, it should be a UnitPrefix object
+          const prefix = typeof unitPart.prefix === 'object' && unitPart.prefix !== null ? unitPart.prefix as UnitPrefix : undefined;
+          const prefixName = prefix?.name || "";
+          const fullUnitName = prefixName + unitName;  // This combines prefix (e.g. 'c') with unit name (e.g. 'm') to get 'cm'
+          const power = unitPart.power;
+
+          if (!seenBaseTypes.has(baseType)) {
+            seenBaseTypes.add(baseType);
             
-            const compatibleUnits = getCompatibleUnits(baseKey);
+            const compatibleUnits = getCompatibleUnits(baseType);
             const conversions: { unit: string; value: string; }[] = [];
             
             try {
-              const testUnit = math.unit('1 ' + unitPart.unit.name);
+              const testUnit = math.unit('1 ' + fullUnitName);
               
               compatibleUnits.forEach(compatibleUnit => {
                 try {
@@ -459,8 +480,8 @@ export default function ConversionPage() {
               const uniqueConversions = removeDuplicateConversions(conversions);
 
               results.push({
-                baseType: baseKey,
-                power: unitPart.power,
+                baseType: baseType,
+                power: power,
                 conversions: uniqueConversions
               });
             } catch {
@@ -748,17 +769,46 @@ export default function ConversionPage() {
         units.forEach(unitPart => {
           const baseType = unitPart.unit.base.key;
           const unitName = unitPart.unit.name;
+          // Handle the prefix - if it exists, it should be a UnitPrefix object
+          const prefix = typeof unitPart.prefix === 'object' && unitPart.prefix !== null ? unitPart.prefix as UnitPrefix : undefined;
+          const prefixName = prefix?.name || "";
+          const fullUnitName = prefixName + unitName;  // This combines prefix (e.g. 'c') with unit name (e.g. 'm') to get 'cm'
           const power = unitPart.power;
 
           // Find matching conversion group
           const conversionGroup = conversions.find(conv => conv.baseType === baseType && conv.power === power);
           if (!conversionGroup) return;
 
+          // Special handling for length and time units
+          if (baseType === "LENGTH") {
+            // Try to find the exact unit in commonLengthUnits
+            const exactMetricMatch = commonLengthUnits.find(lu => lu.unit === fullUnitName);
+            if (exactMetricMatch) {
+              newSelectedUnits.push({
+                baseType,
+                unit: fullUnitName,
+                power
+              });
+              return;
+            }
+          } else if (baseType === "TIME") {
+            // Try to find the exact unit in commonTimeUnits
+            const exactMetricMatch = commonTimeUnits.find(tu => tu.unit === fullUnitName);
+            if (exactMetricMatch) {
+              newSelectedUnits.push({
+                baseType,
+                unit: fullUnitName,
+                power
+              });
+              return;
+            }
+          }
+
           // Try to find exact match first
           const matchingConversion = conversionGroup.conversions.find(conv => {
             try {
               // Create test units with value 1
-              const testUnit = math.unit('1 ' + unitName);
+              const testUnit = math.unit('1 ' + fullUnitName);
               const targetUnit = math.unit('1 ' + conv.unit);
 
               // Try converting between them (in both directions)
@@ -775,8 +825,8 @@ export default function ConversionPage() {
               }
             } catch {
               // If unit creation fails, try simple string matching
-              return conv.unit.toLowerCase() === unitName.toLowerCase() ||
-                     conv.unit.replace(/[^a-zA-Z0-9]/g, '') === unitName.replace(/[^a-zA-Z0-9]/g, '');
+              return conv.unit.toLowerCase() === fullUnitName.toLowerCase() ||
+                     conv.unit.replace(/[^a-zA-Z0-9]/g, '') === fullUnitName.replace(/[^a-zA-Z0-9]/g, '');
             }
           });
 
@@ -859,6 +909,12 @@ export default function ConversionPage() {
         // Update selected units if we found matches
         if (newSelectedUnits.length > 0) {
           setSelectedUnits(newSelectedUnits);
+          // Calculate dimensional analysis with the new units
+          const newDimensionalAnalysis = calculateDimensionalAnalysis(evaluated, newSelectedUnits);
+          setResult(prev => ({
+            ...prev,
+            dimensionalAnalysis: newDimensionalAnalysis
+          }));
         }
       } catch (error) {
         console.error('Error in autoSelectUnits:', error);
@@ -885,11 +941,6 @@ export default function ConversionPage() {
 
       const evaluated = math.evaluate(input);
       let metersValue: string | null = null;
-      let dimensionalAnalysis: Result['dimensionalAnalysis'] = {
-        numericValue: null,
-        units: null,
-        error: null
-      };
 
       // Get all possible conversions
       const newConversions = getConversions(evaluated);
@@ -900,21 +951,28 @@ export default function ConversionPage() {
         const inMeters = math.unit(evaluated);
         metersValue = inMeters.toString();
         
-        // Auto-select units based on input
-        autoSelectUnits(inMeters, newConversions);
+        // Set initial result without dimensional analysis
+        setResult(prev => ({
+          ...prev,
+          value: evaluated.toString(),
+          inMeters: metersValue,
+        }));
         
-        // Calculate dimensional analysis with current selected units
-        dimensionalAnalysis = calculateDimensionalAnalysis(inMeters, selectedUnits);
+        // Auto-select units based on input - this will also update the dimensional analysis
+        autoSelectUnits(inMeters, newConversions);
       } catch {
         // Not a unit or cannot be converted to meters
         metersValue = null;
+        setResult({
+          value: evaluated.toString(),
+          inMeters: null,
+          dimensionalAnalysis: {
+            numericValue: null,
+            units: null,
+            error: null
+          }
+        });
       }
-
-      setResult({
-        value: evaluated.toString(),
-        inMeters: metersValue,
-        dimensionalAnalysis
-      });
     } catch {
       setResult({
         value: "Invalid expression",
