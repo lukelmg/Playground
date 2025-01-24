@@ -5,12 +5,11 @@ import { Input } from "@/components/ui/input";
 import * as math from 'mathjs';
 import { Button } from "@/components/ui/button";
 import { ChevronRightIcon } from "@radix-ui/react-icons";
-
-interface UnitPrefix {
-  name: string;
-  value: number;
-  scientific: boolean;
-}
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface Result {
   value: string;
@@ -262,6 +261,7 @@ const UnitConversionButton: React.FC<UnitConversionButtonProps> = ({
 export default function ConversionPage() {
   const defaultValue = "x=2N/m^2";
   const [value, setValue] = React.useState<string>(defaultValue);
+  const [isModalOpen, setIsModalOpen] = React.useState(false);
   const [result, setResult] = React.useState<Result>({
     value: "",
     inMeters: null,
@@ -394,7 +394,8 @@ export default function ConversionPage() {
         // Get all compatible conversions for this derived unit
         const directConversions = getCompatibleUnits(mainUnit).map(compatibleUnit => {
           try {
-            const converted = math.unit(`1 ${mainUnit}`).to(compatibleUnit);
+            // Convert the actual evaluated value to this unit
+            const converted = evaluated.to(compatibleUnit);
             return {
               unit: compatibleUnit,
               value: converted.toString()
@@ -409,7 +410,8 @@ export default function ConversionPage() {
           .filter(unit => unit !== mainUnit)
           .map(unit => {
             try {
-              const converted = math.unit(`1 ${mainUnit}`).to(unit);
+              // Convert the actual evaluated value to this unit
+              const converted = evaluated.to(unit);
               return {
                 unit,
                 value: converted.toString()
@@ -430,7 +432,7 @@ export default function ConversionPage() {
           derivedUnits.push({
             name: mainUnit,
             definition: definition,
-            conversions: removeDuplicateConversions(allConversions)
+            conversions: allConversions
           });
         }
       } catch {
@@ -457,49 +459,259 @@ export default function ConversionPage() {
       if (units.length > 0) {
         const seenBaseTypes = new Set<string>();
         
-        units.forEach(unitPart => {
-          const baseType = unitPart.unit.base.key;
-          const unitName = unitPart.unit.name;
-          // Handle the prefix - if it exists, it should be a UnitPrefix object
-          const prefix = typeof unitPart.prefix === 'object' && unitPart.prefix !== null ? unitPart.prefix as UnitPrefix : undefined;
-          const prefixName = prefix?.name || "";
-          const fullUnitName = prefixName + unitName;  // This combines prefix (e.g. 'c') with unit name (e.g. 'm') to get 'cm'
-          const power = unitPart.power;
+        // First, check if we have a compound unit that needs to be broken down
+        const firstUnit = units[0];
+        const baseType = firstUnit.unit.base.key;
+        
+        if (baseType === "PRESSURE") {
+          // Add force component (N)
+          try {
+            const forceConversions = getCompatibleUnits("FORCE").map(compatibleUnit => {
+              try {
+                const testUnit = math.unit('1 N');
+                const converted = testUnit.to(compatibleUnit);
+                return {
+                  unit: compatibleUnit,
+                  value: converted.toString()
+                };
+              } catch {
+                return null;
+              }
+            }).filter((conv): conv is { unit: string; value: string } => conv !== null);
 
-          if (!seenBaseTypes.has(baseType)) {
-            seenBaseTypes.add(baseType);
-            
-            const compatibleUnits = getCompatibleUnits(baseType);
-            const conversions: { unit: string; value: string; }[] = [];
-            
-            try {
-              const testUnit = math.unit('1 ' + fullUnitName);
-              
-              compatibleUnits.forEach(compatibleUnit => {
-                try {
-                  const converted = testUnit.to(compatibleUnit);
-                  conversions.push({
-                    unit: compatibleUnit,
-                    value: converted.toString()
-                  });
-                } catch {
-                  // Skip incompatible units
-                }
-              });
-
-              // Remove duplicates before adding to results
-              const uniqueConversions = removeDuplicateConversions(conversions);
-
+            if (forceConversions.length > 0) {
               results.push({
-                baseType: baseType,
-                power: power,
-                conversions: uniqueConversions
+                baseType: "FORCE",
+                power: 1,
+                conversions: removeDuplicateConversions(forceConversions)
               });
-            } catch {
-              // Skip if unable to convert
             }
+          } catch (error) {
+            console.error('Error getting force conversions:', error);
           }
-        });
+
+          // Add length component (m) for area
+          try {
+            const lengthConversions = getCompatibleUnits("LENGTH").map(compatibleUnit => {
+              try {
+                const testUnit = math.unit('1 m');
+                const converted = testUnit.to(compatibleUnit);
+                return {
+                  unit: compatibleUnit,
+                  value: converted.toString()
+                };
+              } catch {
+                return null;
+              }
+            }).filter((conv): conv is { unit: string; value: string } => conv !== null);
+
+            if (lengthConversions.length > 0) {
+              results.push({
+                baseType: "LENGTH",
+                power: -2, // Squared in denominator for pressure
+                conversions: removeDuplicateConversions(lengthConversions)
+              });
+            }
+          } catch (error) {
+            console.error('Error getting length conversions:', error);
+          }
+        } else if (baseType === "ENERGY") {
+          // Add mass component (kg)
+          try {
+            const massConversions = getCompatibleUnits("MASS").map(compatibleUnit => {
+              try {
+                const testUnit = math.unit('1 kg');
+                const converted = testUnit.to(compatibleUnit);
+                return {
+                  unit: compatibleUnit,
+                  value: converted.toString()
+                };
+              } catch {
+                return null;
+              }
+            }).filter((conv): conv is { unit: string; value: string } => conv !== null);
+
+            if (massConversions.length > 0) {
+              results.push({
+                baseType: "MASS",
+                power: 1,
+                conversions: removeDuplicateConversions(massConversions)
+              });
+            }
+          } catch (error) {
+            console.error('Error getting mass conversions:', error);
+          }
+
+          // Add length component (m)
+          try {
+            const lengthConversions = getCompatibleUnits("LENGTH").map(compatibleUnit => {
+              try {
+                const testUnit = math.unit('1 m');
+                const converted = testUnit.to(compatibleUnit);
+                return {
+                  unit: compatibleUnit,
+                  value: converted.toString()
+                };
+              } catch {
+                return null;
+              }
+            }).filter((conv): conv is { unit: string; value: string } => conv !== null);
+
+            if (lengthConversions.length > 0) {
+              results.push({
+                baseType: "LENGTH",
+                power: 2, // Squared for energy
+                conversions: removeDuplicateConversions(lengthConversions)
+              });
+            }
+          } catch (error) {
+            console.error('Error getting length conversions:', error);
+          }
+
+          // Add time component (s)
+          try {
+            const timeConversions = getCompatibleUnits("TIME").map(compatibleUnit => {
+              try {
+                const testUnit = math.unit('1 s');
+                const converted = testUnit.to(compatibleUnit);
+                return {
+                  unit: compatibleUnit,
+                  value: converted.toString()
+                };
+              } catch {
+                return null;
+              }
+            }).filter((conv): conv is { unit: string; value: string } => conv !== null);
+
+            if (timeConversions.length > 0) {
+              results.push({
+                baseType: "TIME",
+                power: -2, // Squared in denominator for energy
+                conversions: removeDuplicateConversions(timeConversions)
+              });
+            }
+          } catch (error) {
+            console.error('Error getting time conversions:', error);
+          }
+        } else if (baseType === "POWER") {
+          // Add mass component (kg)
+          try {
+            const massConversions = getCompatibleUnits("MASS").map(compatibleUnit => {
+              try {
+                const testUnit = math.unit('1 kg');
+                const converted = testUnit.to(compatibleUnit);
+                return {
+                  unit: compatibleUnit,
+                  value: converted.toString()
+                };
+              } catch {
+                return null;
+              }
+            }).filter((conv): conv is { unit: string; value: string } => conv !== null);
+
+            if (massConversions.length > 0) {
+              results.push({
+                baseType: "MASS",
+                power: 1,
+                conversions: removeDuplicateConversions(massConversions)
+              });
+            }
+          } catch (error) {
+            console.error('Error getting mass conversions:', error);
+          }
+
+          // Add length component (m)
+          try {
+            const lengthConversions = getCompatibleUnits("LENGTH").map(compatibleUnit => {
+              try {
+                const testUnit = math.unit('1 m');
+                const converted = testUnit.to(compatibleUnit);
+                return {
+                  unit: compatibleUnit,
+                  value: converted.toString()
+                };
+              } catch {
+                return null;
+              }
+            }).filter((conv): conv is { unit: string; value: string } => conv !== null);
+
+            if (lengthConversions.length > 0) {
+              results.push({
+                baseType: "LENGTH",
+                power: 2, // Squared for power
+                conversions: removeDuplicateConversions(lengthConversions)
+              });
+            }
+          } catch (error) {
+            console.error('Error getting length conversions:', error);
+          }
+
+          // Add time component (s)
+          try {
+            const timeConversions = getCompatibleUnits("TIME").map(compatibleUnit => {
+              try {
+                const testUnit = math.unit('1 s');
+                const converted = testUnit.to(compatibleUnit);
+                return {
+                  unit: compatibleUnit,
+                  value: converted.toString()
+                };
+              } catch {
+                return null;
+              }
+            }).filter((conv): conv is { unit: string; value: string } => conv !== null);
+
+            if (timeConversions.length > 0) {
+              results.push({
+                baseType: "TIME",
+                power: -3, // Cubed in denominator for power
+                conversions: removeDuplicateConversions(timeConversions)
+              });
+            }
+          } catch (error) {
+            console.error('Error getting time conversions:', error);
+          }
+        } else {
+          // Handle non-compound units as before
+          units.forEach(unitPart => {
+            const baseType = unitPart.unit.base.key;
+            const power = unitPart.power;
+
+            if (!seenBaseTypes.has(baseType)) {
+              seenBaseTypes.add(baseType);
+              
+              const compatibleUnits = getCompatibleUnits(baseType);
+              const conversions: { unit: string; value: string; }[] = [];
+              
+              try {
+                const testUnit = math.unit('1 ' + unitPart.unit.name);
+                
+                compatibleUnits.forEach(compatibleUnit => {
+                  try {
+                    const converted = testUnit.to(compatibleUnit);
+                    conversions.push({
+                      unit: compatibleUnit,
+                      value: converted.toString()
+                    });
+                  } catch {
+                    // Skip incompatible units
+                  }
+                });
+
+                // Remove duplicates before adding to results
+                const uniqueConversions = removeDuplicateConversions(conversions);
+
+                results.push({
+                  baseType: baseType,
+                  power: power,
+                  conversions: uniqueConversions
+                });
+              } catch {
+                // Skip if unable to convert
+              }
+            }
+          });
+        }
 
         // Add derived units to the first conversion result
         if (results.length > 0) {
@@ -767,183 +979,6 @@ export default function ConversionPage() {
     }
   };
 
-  const autoSelectUnits = (evaluated: math.Unit, conversions: UnitConversion[]) => {
-    // Clear previous selections first
-    setSelectedUnits([]);
-
-    // Wait for conversion buttons to be rendered
-    setTimeout(() => {
-      try {
-        const units = evaluated.units;
-        const newSelectedUnits: SelectedUnit[] = [];
-
-        units.forEach(unitPart => {
-          const baseType = unitPart.unit.base.key;
-          const unitName = unitPart.unit.name;
-          // Handle the prefix - if it exists, it should be a UnitPrefix object
-          const prefix = typeof unitPart.prefix === 'object' && unitPart.prefix !== null ? unitPart.prefix as UnitPrefix : undefined;
-          const prefixName = prefix?.name || "";
-          const fullUnitName = prefixName + unitName;  // This combines prefix (e.g. 'c') with unit name (e.g. 'm') to get 'cm'
-          const power = unitPart.power;
-
-          // Find matching conversion group
-          const conversionGroup = conversions.find(conv => conv.baseType === baseType && conv.power === power);
-          if (!conversionGroup) return;
-
-          // Special handling for length and time units
-          if (baseType === "LENGTH") {
-            // Try to find the exact unit in commonLengthUnits
-            const exactMetricMatch = commonLengthUnits.find(lu => lu.unit === fullUnitName);
-            if (exactMetricMatch) {
-              newSelectedUnits.push({
-                baseType,
-                unit: fullUnitName,
-                power
-              });
-              return;
-            }
-          } else if (baseType === "TIME") {
-            // Try to find the exact unit in commonTimeUnits
-            const exactMetricMatch = commonTimeUnits.find(tu => tu.unit === fullUnitName);
-            if (exactMetricMatch) {
-              newSelectedUnits.push({
-                baseType,
-                unit: fullUnitName,
-                power
-              });
-              return;
-            }
-          } else if (baseType === "MASS") {
-            // Try to find the exact unit in commonMassUnits
-            const exactMetricMatch = commonMassUnits.find(mu => mu.unit === fullUnitName);
-            if (exactMetricMatch) {
-              newSelectedUnits.push({
-                baseType,
-                unit: fullUnitName,
-                power
-              });
-              return;
-            }
-          }
-
-          // Try to find exact match first
-          const matchingConversion = conversionGroup.conversions.find(conv => {
-            try {
-              // Create test units with value 1
-              const testUnit = math.unit('1 ' + fullUnitName);
-              const targetUnit = math.unit('1 ' + conv.unit);
-
-              // Try converting between them (in both directions)
-              try {
-                const converted = testUnit.to(targetUnit.units[0].unit.name);
-                return Math.abs(converted.toNumber() - 1) < 1e-10;
-              } catch {
-                try {
-                  const converted = targetUnit.to(testUnit.units[0].unit.name);
-                  return Math.abs(converted.toNumber() - 1) < 1e-10;
-                } catch {
-                  return false;
-                }
-              }
-            } catch {
-              // If unit creation fails, try simple string matching
-              return conv.unit.toLowerCase() === fullUnitName.toLowerCase() ||
-                     conv.unit.replace(/[^a-zA-Z0-9]/g, '') === fullUnitName.replace(/[^a-zA-Z0-9]/g, '');
-            }
-          });
-
-          if (matchingConversion) {
-            newSelectedUnits.push({
-              baseType,
-              unit: matchingConversion.unit,
-              power
-            });
-          }
-        });
-
-        // Handle compound units (like pressure = force/area)
-        if (units.some(u => u.unit.base.key === "PRESSURE")) {
-          const forceGroup = conversions.find(conv => conv.baseType === "FORCE");
-          const lengthGroup = conversions.find(conv => conv.baseType === "LENGTH");
-
-          if (forceGroup && lengthGroup) {
-            // Add force unit
-            const forceConv = forceGroup.conversions[0];
-            if (forceConv) {
-              newSelectedUnits.push({
-                baseType: "FORCE",
-                unit: forceConv.unit,
-                power: 1
-              });
-            }
-
-            // Add length unit (squared for area)
-            const lengthConv = lengthGroup.conversions[0];
-            if (lengthConv) {
-              newSelectedUnits.push({
-                baseType: "LENGTH",
-                unit: lengthConv.unit,
-                power: -2
-              });
-            }
-          }
-        }
-
-        // Handle energy units (E = m * l^2 * t^-2)
-        if (units.some(u => u.unit.base.key === "ENERGY")) {
-          const massGroup = conversions.find(conv => conv.baseType === "MASS");
-          const lengthGroup = conversions.find(conv => conv.baseType === "LENGTH");
-          const timeGroup = conversions.find(conv => conv.baseType === "TIME");
-
-          if (massGroup && lengthGroup && timeGroup) {
-            // Add mass unit
-            const massConv = massGroup.conversions[0];
-            if (massConv) {
-              newSelectedUnits.push({
-                baseType: "MASS",
-                unit: massConv.unit,
-                power: 1
-              });
-            }
-
-            // Add length unit (squared)
-            const lengthConv = lengthGroup.conversions[0];
-            if (lengthConv) {
-              newSelectedUnits.push({
-                baseType: "LENGTH",
-                unit: lengthConv.unit,
-                power: 2
-              });
-            }
-
-            // Add time unit (squared, negative)
-            const timeConv = timeGroup.conversions[0];
-            if (timeConv) {
-              newSelectedUnits.push({
-                baseType: "TIME",
-                unit: timeConv.unit,
-                power: -2
-              });
-            }
-          }
-        }
-
-        // Update selected units if we found matches
-        if (newSelectedUnits.length > 0) {
-          setSelectedUnits(newSelectedUnits);
-          // Calculate dimensional analysis with the new units
-          const newDimensionalAnalysis = calculateDimensionalAnalysis(evaluated, newSelectedUnits);
-          setResult(prev => ({
-            ...prev,
-            dimensionalAnalysis: newDimensionalAnalysis
-          }));
-        }
-      } catch (error) {
-        console.error('Error in autoSelectUnits:', error);
-      }
-    }, 0);
-  };
-
   const evaluateExpression = (input: string) => {
     try {
       if (!input.trim()) {
@@ -979,9 +1014,6 @@ export default function ConversionPage() {
           value: evaluated.toString(),
           inMeters: metersValue,
         }));
-        
-        // Auto-select units based on input - this will also update the dimensional analysis
-        autoSelectUnits(inMeters, newConversions);
       } catch {
         // Not a unit or cannot be converted to meters
         metersValue = null;
@@ -1010,6 +1042,61 @@ export default function ConversionPage() {
     }
   };
 
+  const handleDerivedUnitSelect = (derivedUnit: string, value: string) => {
+    // Clear specific unit selections when a derived unit is selected
+    setSelectedUnits([]);
+    
+    try {
+      if (result.value) {
+        // Parse the value string to get just the numeric part
+        const numericValue = parseFloat(value.split(' ')[0]);
+        
+        setResult(prev => ({
+          ...prev,
+          dimensionalAnalysis: {
+            numericValue: numericValue,
+            units: derivedUnit,
+            error: null
+          }
+        }));
+      }
+    } catch (error) {
+      console.error('Error selecting derived unit:', error);
+    }
+  };
+
+  const getMissingUnits = (evaluated: math.Unit, selectedUnits: SelectedUnit[]): string[] => {
+    const units = evaluated.units;
+    const missingUnits: string[] = [];
+    const selectedBaseTypes = new Set(selectedUnits.map(u => u.baseType));
+
+    units.forEach(unitPart => {
+      const baseType = unitPart.unit.base.key;
+      
+      // Special handling for compound units
+      if (baseType === "PRESSURE") {
+        if (!selectedBaseTypes.has("FORCE")) missingUnits.push("Force");
+        if (!selectedBaseTypes.has("LENGTH")) missingUnits.push("Length");
+      } else if (baseType === "ENERGY") {
+        if (!selectedBaseTypes.has("MASS")) missingUnits.push("Mass");
+        if (!selectedBaseTypes.has("LENGTH")) missingUnits.push("Length");
+        if (!selectedBaseTypes.has("TIME")) missingUnits.push("Time");
+      } else if (baseType === "POWER") {
+        if (!selectedBaseTypes.has("MASS")) missingUnits.push("Mass");
+        if (!selectedBaseTypes.has("LENGTH")) missingUnits.push("Length");
+        if (!selectedBaseTypes.has("TIME")) missingUnits.push("Time");
+      } else if (baseType === "SURFACE" || baseType === "AREA") {
+        if (!selectedBaseTypes.has("LENGTH")) missingUnits.push("Length");
+      } else if (baseType === "VOLUME") {
+        if (!selectedBaseTypes.has("LENGTH")) missingUnits.push("Length");
+      } else if (!selectedBaseTypes.has(baseType)) {
+        missingUnits.push(baseType);
+      }
+    });
+
+    return [...new Set(missingUnits)]; // Remove duplicates
+  };
+
   const handleUnitSelection = (baseType: string, unit: string, power: number) => {
     // Create new selected units array
     const newSelectedUnits = [
@@ -1017,89 +1104,192 @@ export default function ConversionPage() {
       { baseType, unit, power }
     ];
     
-    // Update selected units first
     setSelectedUnits(newSelectedUnits);
     
-    // Then update the dimensional analysis result using the current expression
     try {
       if (result.value) {
         const evaluated = math.unit(result.value);
-        const newDimensionalAnalysis = calculateDimensionalAnalysis(evaluated, newSelectedUnits);
+        const missingUnits = getMissingUnits(evaluated, newSelectedUnits);
         
-        // Update the entire result to ensure consistency
-        setResult(prev => ({
-          ...prev,
-          dimensionalAnalysis: newDimensionalAnalysis
-        }));
+        if (missingUnits.length === 0) {
+          const newDimensionalAnalysis = calculateDimensionalAnalysis(evaluated, newSelectedUnits);
+          setResult(prev => ({
+            ...prev,
+            dimensionalAnalysis: newDimensionalAnalysis
+          }));
+        } else {
+          setResult(prev => ({
+            ...prev,
+            dimensionalAnalysis: {
+              numericValue: null,
+              units: null,
+              error: `Missing required units: ${missingUnits.join(", ")}`
+            }
+          }));
+        }
       }
     } catch (error) {
       console.error('Error updating dimensional analysis:', error);
     }
   };
 
+  const shouldShowPredefinedUnits = (derivedUnits: DerivedUnit[], conversions: UnitConversion[]): boolean => {
+    // Get all specific conversion units
+    const specificUnits = new Set(
+      conversions.flatMap(conv => 
+        conv.conversions.map(c => c.unit)
+      )
+    );
+
+    // Check if any predefined unit exists in specific units
+    const hasOverlap = derivedUnits.some(derived =>
+      derived.conversions.some(conv => specificUnits.has(conv.unit))
+    );
+
+    return !hasOverlap;
+  };
+
   return (
-    <div className="p-4 flex flex-col gap-4">
-      <div className="flex gap-4 items-center">
-        <Input
-          type="text"
-          value={value}
-          onChange={(e) => {
-            setValue(e.target.value);
-            evaluateExpression(e.target.value);
-          }}
-          placeholder="Enter mathematical expression or unit (e.g., 5 m/s, 10 ft^3)..."
-          className="max-w-sm"
-        />
-        <div className="min-w-[200px] p-2 border rounded-md bg-muted">
-          {result.value || "Result will appear here"}
+    <div className="h-screen w-full flex items-center justify-center">
+      <div className="flex flex-col gap-4 items-center">
+        <div className="flex gap-4 items-center">
+          <Input
+            type="text"
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value);
+              evaluateExpression(e.target.value);
+            }}
+            placeholder="Enter mathematical expression or unit (e.g., 5 m/s, 10 ft^3)..."
+            className="w-[300px]"
+          />
+          <Button
+            variant="outline"
+            className="min-w-[200px] p-2"
+            onClick={() => result.value && setIsModalOpen(true)}
+          >
+            {result.value || "Result will appear here"}
+          </Button>
         </div>
       </div>
 
-      {conversions.length > 0 && (
-        <div className="flex flex-col gap-4 mt-4">
-          <div className="text-lg font-semibold">
-            Unit Conversions
-          </div>
-          <div className="flex flex-wrap gap-4">
-            {conversions.map((conversion, i) => (
-              <div key={i} className="flex-1 min-w-[200px] max-w-[400px]">
-                <div className="font-medium mb-2">
-                  {conversion.baseType} (power: {conversion.power})
+      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+        <DialogContent className="max-w-6xl max-h-[80vh]">
+          <DialogTitle className="sr-only">
+            Unit Conversion Options
+          </DialogTitle>
+          <div className="flex gap-8 h-full">
+            {/* Left side - Unit selections */}
+            <div className="flex-1 flex flex-col gap-6 overflow-y-auto pr-4">
+              {/* Predefined/Equivalent Units */}
+              {conversions[0]?.derivedUnits && 
+               conversions[0].derivedUnits.length > 0 && 
+               shouldShowPredefinedUnits(conversions[0].derivedUnits, conversions) && (
+                <>
+                  <div className="space-y-4">
+                    <div className="text-lg font-semibold">
+                      Predefined Units
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      {conversions[0].derivedUnits.map((derived, i) => (
+                        <div key={i} className="space-y-2">
+                          <div className="border rounded-md p-2">
+                            {derived.conversions.map((conv, j) => (
+                              <Button 
+                                key={j}
+                                variant={result.dimensionalAnalysis.units === conv.unit ? "default" : "ghost"}
+                                className="h-auto py-1 px-2 font-mono w-full text-left justify-start"
+                                onClick={() => handleDerivedUnitSelect(conv.unit, conv.value)}
+                              >
+                                {conv.unit}: {conv.value}
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Separator */}
+                  <div className="relative py-8">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t border-t-2" />
+                    </div>
+                    <div className="relative flex justify-center text-sm">
+                      <span className="bg-background px-6 py-2 text-muted-foreground font-semibold border rounded-full">
+                        OR
+                      </span>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Specific Unit Conversions */}
+              <div className="space-y-4">
+                <div className="text-lg font-semibold">
+                  Specific Unit Conversions
                 </div>
-                <div className="space-y-2 border rounded-md p-2">
-                  {conversion.conversions.map((conv, j) => (
-                    <UnitConversionButton
-                      key={j}
-                      conversion={conv}
-                      baseType={conversion.baseType}
-                      power={conversion.power}
-                      isSelected={selectedUnits.some(u => u.unit === conv.unit)}
-                      selectedUnits={selectedUnits}
-                      onSelect={handleUnitSelection}
-                    />
+                <div className="grid grid-cols-2 gap-4">
+                  {conversions.map((conversion, i) => (
+                    <div key={i} className="min-w-[200px]">
+                      <div className="font-medium mb-2">
+                        {conversion.baseType} (power: {conversion.power})
+                      </div>
+                      <div className="space-y-2 border rounded-md p-2">
+                        {conversion.conversions.map((conv, j) => (
+                          <UnitConversionButton
+                            key={j}
+                            conversion={conv}
+                            baseType={conversion.baseType}
+                            power={conversion.power}
+                            isSelected={selectedUnits.some(u => u.unit === conv.unit)}
+                            selectedUnits={selectedUnits}
+                            onSelect={handleUnitSelection}
+                          />
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
               </div>
-            ))}
-          </div>
-
-          {/* New Dimensional Unit Builder Section */}
-          <div className="mt-4 p-4 border rounded-md">
-            <div className="text-lg font-semibold mb-2">
-              Dimensional Unit Builder
             </div>
-            <div className="flex flex-col gap-2">
-              <div className="font-medium">Selected Units:</div>
-              <div className="p-2 bg-muted rounded-md font-mono">
-                {getDimensionalExpression()}
-              </div>
-              {result.dimensionalAnalysis && (
-                <>
-                  <div className="font-medium mt-2">Dimensional Analysis Result:</div>
-                  <div className="p-2 bg-muted rounded-md">
-                    {result.dimensionalAnalysis.error ? (
-                      <div className="text-destructive">{result.dimensionalAnalysis.error}</div>
-                    ) : (
+
+            {/* Right side - Results */}
+            <div className="w-[300px] border-l pl-8 space-y-6">
+              <div className="space-y-4">
+                <div className="text-lg font-semibold">Result</div>
+                {selectedUnits.length > 0 ? (
+                  <>
+                    <div className="space-y-2">
+                      <div className="font-medium">Selected Units:</div>
+                      <div className="p-2 bg-muted rounded-md font-mono">
+                        {getDimensionalExpression()}
+                      </div>
+                    </div>
+                    {result.dimensionalAnalysis && (
+                      <div className="space-y-2">
+                        <div className="font-medium">Converted Value:</div>
+                        <div className="p-2 bg-muted rounded-md">
+                          {result.dimensionalAnalysis.error ? (
+                            <div className="text-destructive">{result.dimensionalAnalysis.error}</div>
+                          ) : result.dimensionalAnalysis.numericValue !== null ? (
+                            <div className="font-mono flex gap-2 items-baseline">
+                              <span className="text-lg">
+                                {result.dimensionalAnalysis.numericValue.toFixed(6)}
+                              </span>
+                              <span className="text-muted-foreground">
+                                {result.dimensionalAnalysis.units}
+                              </span>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : result.dimensionalAnalysis.units ? (
+                  <div className="space-y-2">
+                    <div className="font-medium">Converted Value:</div>
+                    <div className="p-2 bg-muted rounded-md">
                       <div className="font-mono flex gap-2 items-baseline">
                         <span className="text-lg">
                           {result.dimensionalAnalysis.numericValue?.toFixed(6)}
@@ -1108,44 +1298,18 @@ export default function ConversionPage() {
                           {result.dimensionalAnalysis.units}
                         </span>
                       </div>
-                    )}
+                    </div>
                   </div>
-                </>
-              )}
+                ) : (
+                  <div className="text-muted-foreground">
+                    Select all required units from the specific unit conversion section to see the result
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-          
-          {conversions[0]?.derivedUnits && conversions[0].derivedUnits.length > 0 && (
-            <>
-              <div className="w-full border-t border-border my-4" />
-              <div className="text-lg font-semibold mb-2">
-                Equivalent Derived Units
-              </div>
-              <div className="flex flex-col gap-4">
-                {conversions[0].derivedUnits.map((derived, i) => (
-                  <div key={i}>
-                    <div className="font-medium mb-2">
-                      {derived.name} ({derived.definition})
-                    </div>
-                    <div className="space-y-2 max-h-[400px] overflow-y-auto border rounded-md p-2">
-                      {derived.conversions.map((conv, j) => (
-                        <div key={j}>
-                          <Button 
-                            variant="ghost" 
-                            className="h-auto py-1 px-2 font-mono w-full text-left justify-start"
-                          >
-                            {conv.unit}: {conv.value}
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
